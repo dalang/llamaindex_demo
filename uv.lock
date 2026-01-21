@@ -1208,6 +1208,7 @@ dependencies = [
     { name = "llama-index-llms-zhipuai" },
     { name = "llama-index-vector-stores-chroma" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1220,6 +1221,7 @@ requires-dist = [
     { name = "llama-index-llms-zhipuai" },
     { name = "llama-index-vector-stores-chroma", specifier = ">=0.2.0" },
     { name = "python-dotenv" },
+    { name = "requests", specifier = ">=2.31.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.23.0" },
 ]
 

@@ -1,12 +1,18 @@
 """Query service for RAG system."""
 
+import logging
+
 import chromadb
 from llama_index.core import Settings, VectorStoreIndex
+from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.embeddings.zhipuai import ZhipuAIEmbedding
 from llama_index.llms.zhipuai import ZhipuAI
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
 import config
+from reranker import TEIReranker
+
+logger = logging.getLogger(__name__)
 
 
 class QueryService:
@@ -14,6 +20,10 @@ class QueryService:
 
     def __init__(self):
         """Initialize query service."""
+        # 验证 API key
+        if not config.ZHIPUAI_API_KEY:
+            raise ValueError("❌ ZHIPUAI_API_KEY 未设置！请在 .env 文件中配置 API key")
+
         # 配置模型
         self.llm = ZhipuAI(
             model=config.LLM_MODEL,
@@ -47,17 +57,56 @@ class QueryService:
             embed_model=self.embed_model,
         )
 
+        # 配置 node postprocessors（包括 rerank）
+        node_postprocessors = self._setup_postprocessors()
+
         # 创建查询引擎
         self.query_engine = self.index.as_query_engine(
             similarity_top_k=config.SIMILARITY_TOP_K,
             response_mode="compact",
+            node_postprocessors=node_postprocessors,
         )
 
-        print("✅ 查询服务初始化完成")
+        logger.info("✅ 查询服务初始化完成")
+
+    def _setup_postprocessors(self) -> list:
+        """Setup node postprocessors including reranker.
+
+        Returns:
+            List of postprocessors to apply to retrieved nodes.
+        """
+        postprocessors = []
+
+        if config.USE_RERANK:
+            try:
+                reranker = TEIReranker(
+                    api_url=config.RERANK_API_URL,
+                    top_n=config.RERANK_TOP_N,
+                    timeout=config.RERANK_TIMEOUT,
+                )
+                postprocessors.append(reranker)
+                logger.info(
+                    f"✅ TEI Rerank 启用: {config.RERANK_API_URL}, "
+                    f"初始检索={config.SIMILARITY_TOP_K}, "
+                    f"rerank后={config.RERANK_TOP_N}"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️  Rerank 初始化失败: {e}")
+
+        return postprocessors
 
     def query(self, question: str, return_sources: bool = True):
-        """Query the RAG system."""
-        print(f"\n🔍 查询: {question}")
+        """Query the RAG system.
+
+        Args:
+            question: The question to query.
+            return_sources: Whether to return source nodes.
+
+        Returns:
+            Dictionary containing question, answer, and optional sources.
+        """
+        logger.info(f"🔍 查询: {question}")
+
         response = self.query_engine.query(question)
 
         result = {
@@ -71,8 +120,8 @@ class QueryService:
                 source = {
                     "chunk_id": i,
                     "score": node.score,
-                    "text": node.text[:300] + "..."
-                    if len(node.text) > 300
+                    "text": node.text[:100] + "..."
+                    if len(node.text) > 100
                     else node.text,
                     "metadata": node.node.metadata,
                 }
@@ -83,6 +132,11 @@ class QueryService:
 
 def main():
     """Interactive query mode."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
     service = QueryService()
 
     print("\n" + "=" * 70)
